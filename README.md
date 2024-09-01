@@ -1,0 +1,1 @@
+This is the basic version of a cricket application that I am working on. The project is currently capable of fetching real-time cricket scores using web scraping and integrating them with our local database.
