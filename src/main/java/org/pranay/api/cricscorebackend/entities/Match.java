@@ -1,10 +1,11 @@
 package org.pranay.api.cricscorebackend.entities;
 
 import jakarta.persistence.*;
-import org.springframework.beans.factory.config.YamlProcessor;
+import lombok.Data;
 
 import java.util.Date;
 
+@Data
 @Entity
 @Table(name="cric_matches")
 public class Match {
@@ -49,100 +50,5 @@ public class Match {
         else{
             this.status = matchStatus.COMPLETED;
         }
-    }
-    public int getMatchId() {
-        return matchId;
-    }
-
-    public void setMatchId(int matchId) {
-        this.matchId = matchId;
-    }
-
-    public String getTeamHeading() {
-        return teamHeading;
-    }
-
-    public void setTeamHeading(String teamHeading) {
-        this.teamHeading = teamHeading;
-    }
-
-    public String getMatchNumberVenue() {
-        return matchNumberVenue;
-    }
-
-    public void setMatchNumberVenue(String matchNumberVenue) {
-        this.matchNumberVenue = matchNumberVenue;
-    }
-
-    public String getBattingTeam() {
-        return battingTeam;
-    }
-
-    public void setBattingTeam(String battingTeam) {
-        this.battingTeam = battingTeam;
-    }
-
-    public String getBattingTeamScore() {
-        return battingTeamScore;
-    }
-
-    public void setBattingTeamScore(String battingTeamScore) {
-        this.battingTeamScore = battingTeamScore;
-    }
-
-    public String getBowlingTeam() {
-        return bowlingTeam;
-    }
-
-    public void setBowlingTeam(String bowlingTeam) {
-        this.bowlingTeam = bowlingTeam;
-    }
-
-    public String getBowlingTeamScore() {
-        return bowlingTeamScore;
-    }
-
-    public void setBowlingTeamScore(String bowlingTeamScore) {
-        this.bowlingTeamScore = bowlingTeamScore;
-    }
-
-    public String getLiveText() {
-        return liveText;
-    }
-
-    public void setLiveText(String liveText) {
-        this.liveText = liveText;
-    }
-
-    public String getTextComplete() {
-        return textComplete;
-    }
-
-    public void setTextComplete(String textComplete) {
-        this.textComplete = textComplete;
-    }
-
-    public String getMatchLink() {
-        return matchLink;
-    }
-
-    public void setMatchLink(String matchLink) {
-        this.matchLink = matchLink;
-    }
-
-    public matchStatus getStatus() {
-        return status;
-    }
-
-    public void setStatus(matchStatus status) {
-        this.status = status;
-    }
-
-    public Date getDate() {
-        return date;
-    }
-
-    public void setDate(Date date) {
-        this.date = date;
     }
 }
