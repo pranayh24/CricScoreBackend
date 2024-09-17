@@ -19,6 +19,7 @@ public class Scorecard {
     @JoinColumn(name="match_id")
     private Match match;
 
+    @OneToMany
     private List<Innings> inningsList;
 
 }

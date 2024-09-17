@@ -1,11 +1,17 @@
 package org.pranay.api.cricscorebackend.entities;
 
 import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.util.List;
 
 @Data
 @Entity
 @Table(name="innings")
+@NoArgsConstructor
+@AllArgsConstructor
 public class Innings {
 
     @Id
@@ -22,6 +28,14 @@ public class Innings {
     private int extras;
     private String fallOfWickets;
 
+    @ElementCollection
     private List<BatsmanPerformance> battingDetails;
+
+    @ElementCollection
+    private List<BowlerPerformance> bowlingDetails;
+
+    private String status;
+
+
 
 }
