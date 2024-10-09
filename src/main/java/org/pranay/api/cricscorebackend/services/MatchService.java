@@ -9,4 +9,5 @@ public interface MatchService {
     //get live matches
     List<Match> getAllMatches();
     List<Match> getLiveMatchScores();
+    void fetchScorecards();
 }

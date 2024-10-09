@@ -13,12 +13,23 @@ import java.util.List;
 @RequestMapping("/match")
 public class MatchController {
 
-    private MatchService matchService;
+    private final MatchService matchService;
+
     public MatchController(MatchService matchService) {
         this.matchService = matchService;
     }
     @GetMapping("/live")
     public ResponseEntity<List<Match>> getLiveMatches() {
         return new ResponseEntity<>(this.matchService.getLiveMatchScores(), HttpStatus.OK);
+    }
+    @GetMapping("/update-scores")
+    public ResponseEntity<String> updateScores() {
+        try {
+            matchService.fetchScorecards(); // Call the method to fetch scorecards from the cricket API
+            return new ResponseEntity<>("Scores updated successfully!", HttpStatus.OK);
+        } catch (Exception e) {
+            e.printStackTrace(); // Consider logging this properly
+            return new ResponseEntity<>("Failed to update scores.", HttpStatus.INTERNAL_SERVER_ERROR);
+        }
     }
 }

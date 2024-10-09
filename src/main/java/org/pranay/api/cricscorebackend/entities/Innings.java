@@ -15,10 +15,11 @@ import java.util.List;
 public class Innings {
 
     @Id
+    @GeneratedValue(strategy =GenerationType.IDENTITY)
     private int inningsId;
 
     @ManyToOne
-    @JoinColumn(name="scorecard_id")
+    @JoinColumn(name="scorecardId")
     private Scorecard scorecard;
 
     private String teamName;
