@@ -2,11 +2,16 @@ package org.pranay.api.cricscorebackend.services.impl;
 
 import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
+import org.antlr.v4.runtime.tree.pattern.ParseTreePattern;
 import org.pranay.api.cricscorebackend.entities.*;
 import org.pranay.api.cricscorebackend.repositeries.MatchRepo;
 import org.pranay.api.cricscorebackend.repositeries.ScorecardRepo;
+import org.pranay.api.cricscorebackend.services.ChartService;
 import org.pranay.api.cricscorebackend.services.MatchService;
+import org.pranay.api.cricscorebackend.services.PredictionIntegrationService;
+import org.pranay.api.cricscorebackend.websocket.WebSocketHandler;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -21,18 +26,31 @@ import java.util.List;
 
 @Service
 public class MatchServiceImpl implements MatchService {
+
+    @Autowired
+    private final WebSocketHandler webSocketHandler;
+
+    @Autowired
+    private final EntityManager entityManager;
     @Autowired
     private MatchRepo matchRepo;
     @Autowired
     private final ScorecardRepo scorecardRepo;
+    @Autowired
+    private ChartService chartService;
 
-    public MatchServiceImpl(MatchRepo matchRepo, ScorecardRepo scorecardRepo, EntityManager entityManager) {
+    @Autowired
+    private PredictionIntegrationService predictionIntegrationService;
+
+    public MatchServiceImpl(WebSocketHandler webSocketHandler, MatchRepo matchRepo, ScorecardRepo scorecardRepo, EntityManager entityManager) {
+        this.webSocketHandler = webSocketHandler;
         this.matchRepo = matchRepo;
         this.scorecardRepo = scorecardRepo;
         this.entityManager = entityManager;
     }
 
     @Override
+    @Scheduled(fixedRate = 30000)
     public List<Match> getLiveMatchScores() {
         List<Match> matches = new ArrayList<>();
         try {
@@ -59,6 +77,9 @@ public class MatchServiceImpl implements MatchService {
                     continue;  // Skip this match
                 }
 
+                // Extract match format from the match heading or number
+                String matchFormat = determineMatchFormat(teamsHeading, matchNumberVenue);
+
                 Match match1 = new Match();
                 match1.setTeamHeading(teamsHeading);
                 match1.setMatchNumberVenue(matchNumberVenue);
@@ -69,10 +90,14 @@ public class MatchServiceImpl implements MatchService {
                 match1.setLiveText(textLive);
                 match1.setMatchLink(matchLink);
                 match1.setTextComplete(textComplete);
+                match1.setMatchFormat(matchFormat); // Set the match format
                 match1.setMatchStatus();
 
                 matches.add(match1);
 
+                // Update the charts
+                chartService.updateMatchScore(match1);
+                webSocketHandler.sendMessageToAll(match1.toString());
                 // Update the match in database
                 updateMatch(match1);
             }
@@ -80,6 +105,28 @@ public class MatchServiceImpl implements MatchService {
             e.printStackTrace();
         }
         return matches;
+    }
+
+    private String determineMatchFormat(String teamsHeading, String matchNumberVenue) {
+        String combinedText = (teamsHeading + " " + matchNumberVenue).toLowerCase();
+
+        if (combinedText.contains(" t20 ") || combinedText.contains("twenty20") || combinedText.contains("t20i")) {
+            return "T20";
+        } else if (combinedText.contains(" odi ") || combinedText.contains("one-day") || combinedText.contains("1st odi")) {
+            return "ODI";
+        } else if (combinedText.contains(" test ") || combinedText.contains("day series") || combinedText.contains("unofficial test")) {
+            return "TEST";
+        } else {
+            // Check for additional tournament-specific formats
+            if (combinedText.contains("wbbl") || combinedText.contains("bbl")) {
+                return "T20";
+            } else if (combinedText.contains("one day cup") || combinedText.contains("list a")) {
+                return "ODI";
+            } else if (combinedText.contains("first-class") || combinedText.contains("sheffield shield")) {
+                return "TEST";
+            }
+        }
+        return "UNKNOWN"; // Default case if format cannot be determined
     }
 
     private void updateMatch(Match match1) {
@@ -90,139 +137,15 @@ public class MatchServiceImpl implements MatchService {
             match1.setMatchId(match.getMatchId());
             this.matchRepo.save(match1);
         }
+        predictionIntegrationService.processPredictionForMatch(match1);
     }
 
     @Override
     public List<Match> getAllMatches() {
         return this.matchRepo.findAll();
     }
-
-    public void fetchScorecards() {
-        List<Match> matches = getAllMatches();
-        for (Match match : matches) {
-            // Check if match link is available and valid
-            String matchLink = match.getMatchLink();
-            if (matchLink != null && !matchLink.isEmpty()) {
-                try {
-                    // Call scrapScorecard method for each match with a valid match link
-                    scrapScorecard("https://www.cricbuzz.com" + matchLink, match); // Assuming relative URL, prepend base URL
-                } catch (IOException e) {
-                    System.err.println("Failed to scrape scorecard for match: " + match.getTeamHeading());
-                    e.printStackTrace();
-                }
-            } else {
-                System.out.println("No valid match link found for match: " + match.getTeamHeading());
-            }
-        }
+    @Override
+    public Match getMatchById(int matchId) {
+        return matchRepo.findById(matchId).orElse(null);
     }
-    @Autowired
-    private EntityManager entityManager;
-
-    @Transactional
-    public void scrapScorecard(String matchLink, Match match) throws IOException {
-        // Connect to the scorecard page
-        Document scorecardDoc = Jsoup.connect(matchLink).get();
-
-        // Create a new Scorecard entity or fetch existing one
-        Scorecard scorecard = scorecardRepo.findByMatch(match)
-                .orElse(new Scorecard());
-        scorecard.setMatch(match);
-
-        // Clear existing innings list to avoid duplicates
-        scorecard.getInningsList().clear();
-
-        // List to hold innings data
-        List<Innings> inningsList = new ArrayList<>();
-
-        // Select the innings container
-        Elements inningsElements = scorecardDoc.select("div.cb-col.cb-col-100.cb-ltst-wgt-hdr");
-
-        for (Element inningsElement : inningsElements) {
-            Innings innings = new Innings();
-            innings.setScorecard(scorecard);  // Set the scorecard reference
-            // Scrape the team name
-            Element teamNameElement = inningsElement.selectFirst("div.cb-col.cb-col-100.cb-scrd-hdr-rw span");
-            String teamName = teamNameElement != null ? teamNameElement.text() : "Unknown Team";
-            innings.setTeamName(teamName);
-
-            // Scrape the fall of wickets
-            String matchDetails = inningsElement.select("div.cb-nav-subhdr").text();
-            String[] detailsArray = matchDetails.split(","); // Split by commas to extract the details
-
-            if (detailsArray.length > 1) {
-                innings.setFallOfWickets(detailsArray[1].trim()); // Fall of wickets
-                String runsWickets = detailsArray[0].trim(); // Something like "100/2"
-                String[] runsWicketsSplit = runsWickets.split("/");
-
-                if (runsWicketsSplit.length > 1) {
-                    innings.setRunsScored(parseIntSafe(runsWicketsSplit[0])); // Runs
-                    innings.setWicketsLost(parseIntSafe(runsWicketsSplit[1])); // Wickets
-                } else {
-                    innings.setRunsScored(parseIntSafe(runsWickets)); // Set runs and assume 0 wickets
-                    innings.setWicketsLost(0); // Default to 0 wickets if not available
-                }
-
-                innings.setOverBowled(detailsArray[1].trim()); // Overs
-            }
-
-            // Scrape batsman performance (use your actual selector)
-            List<BatsmanPerformance> batsmanPerformances = new ArrayList<>();
-            Elements batsmen = inningsElement.select("div.batsman-info");  // Adjust based on your HTML
-            for (Element batsman : batsmen) {
-                BatsmanPerformance batsmanPerformance = new BatsmanPerformance();
-                batsmanPerformance.setBatsmanName(batsman.select("a.cb-text-link").text());
-                batsmanPerformance.setRunsScored(parseIntSafe(batsman.select("div.cb-col-8.text-right.text-bold").text()));
-                batsmanPerformance.setBallsFaced(parseIntSafe(batsman.select("div.cb-col-8.text-right").size() > 1 ? batsman.select("div.cb-col-8.text-right").get(1).text() : "0"));
-                batsmanPerformance.setFours(parseIntSafe(batsman.select("div.cb-col-8.text-right").size() > 2 ? batsman.select("div.cb-col-8.text-right").get(2).text() : "0"));
-                batsmanPerformance.setSixes(parseIntSafe(batsman.select("div.cb-col-8.text-right").size() > 3 ? batsman.select("div.cb-col-8.text-right").get(3).text() : "0"));
-                batsmanPerformance.setDismissalInfo(batsman.select("span.text-gray").text());
-
-                batsmanPerformances.add(batsmanPerformance);
-            }
-            innings.setBattingDetails(batsmanPerformances);
-
-            // Scrape bowler performance (use your actual selector)
-            List<BowlerPerformance> bowlerPerformances = new ArrayList<>();
-            Elements bowlers = inningsElement.select("div.bowler-info"); // Adjust based on your HTML
-            for (Element bowler : bowlers) {
-                BowlerPerformance bowlerPerformance = new BowlerPerformance();
-                bowlerPerformance.setBowlerName(bowler.select("span.bowler-name").text());
-                bowlerPerformance.setOverBowled(bowler.select("span.overs").text());
-                bowlerPerformance.setRunsScored(parseIntSafe(bowler.select("span.runs").text()));
-                bowlerPerformance.setWicketsTaken(parseIntSafe(bowler.select("span.wickets").text()));
-                bowlerPerformance.setEconomyRate(parseDoubleSafe(bowler.select("span.economy").text()));
-
-                bowlerPerformances.add(bowlerPerformance);
-            }
-            innings.setBowlingDetails(bowlerPerformances);
-
-            scorecard.getInningsList().add(innings);
-        }
-
-        // Clear the persistence context to avoid any stale data
-        entityManager.clear();
-
-        // Save or update the scorecard
-        scorecardRepo.save(scorecard);
-    }
-
-
-    // Helper method for safe Integer parsing
-    private int parseIntSafe(String value) {
-        try {
-            return Integer.parseInt(value);
-        } catch (NumberFormatException e) {
-            return 0;
-        }
-    }
-
-    // Helper method for safe Double parsing
-    private double parseDoubleSafe(String value) {
-        try {
-            return Double.parseDouble(value);
-        } catch (NumberFormatException e) {
-            return 0.0;
-        }
-    }
-
 }

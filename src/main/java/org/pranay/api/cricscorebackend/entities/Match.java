@@ -27,7 +27,9 @@ public class Match {
     private String matchLink;
     @Enumerated
     private matchStatus status;
+    private String matchType;
     private Date date = new Date();
+    private String matchFormat;
 
     // set the match status according to text complete
     public void setMatchStatus(){
