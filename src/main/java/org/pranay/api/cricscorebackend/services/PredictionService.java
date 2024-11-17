@@ -2,6 +2,7 @@ package org.pranay.api.cricscorebackend.services;
 
 import org.pranay.api.cricscorebackend.entities.Match;
 import org.pranay.api.cricscorebackend.entities.ScoreDetails;
+import org.pranay.api.cricscorebackend.helper.StadiumCityMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,6 +13,8 @@ import org.springframework.web.client.RestTemplate;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 public class PredictionService {
@@ -19,35 +22,62 @@ public class PredictionService {
     private final RestTemplate restTemplate;
     private final String flaskBaseUrl;
 
+    private static final Pattern SCORE_PATTERN = Pattern.compile("(\\d+)-(\\d+)\\s*\\((\\d+(?:\\.\\d+)?)\\s*Ovs\\)");
+
     @Autowired
     public PredictionService(RestTemplate restTemplate) {
         this.restTemplate = restTemplate;
         this.flaskBaseUrl = "http://localhost:5000";
+
+        // Initialize with some common stadium mappings that might be missing
+        initializeAdditionalStadiumMappings();
+    }
+
+    private void initializeAdditionalStadiumMappings() {
+        // Add any additional mappings that might be specific to your data
+        StadiumCityMapper.addStadiumMapping("Pallekele International Cricket Stadium", "Kandy");
+        StadiumCityMapper.addStadiumMapping("R.Premadasa Stadium", "Colombo");
+        StadiumCityMapper.addStadiumMapping("Premadasa Stadium", "Colombo");
+        // Add more mappings as needed
     }
 
     public Map<String, Object> extractMatchData(Match match) {
         try {
             Map<String, Object> data = new HashMap<>();
 
-            // Extract teams from team heading
-            String[] teams = match.getTeamHeading().split("vs|VS");
+            // Extract teams from team heading (remove trailing comma if present)
+            String teamHeading = match.getTeamHeading().replaceAll(",$", "");
+            String[] teams = teamHeading.split("vs|VS");
             if (teams.length != 2) {
                 logger.warn("Invalid team heading format: {}", match.getTeamHeading());
                 return null;
             }
 
-            data.put("team1", teams[0].trim());
-            data.put("team2", teams[1].trim());
+            String team1 = teams[0].trim();
+            String team2 = teams[1].trim();
+            data.put("team1", team1);
+            data.put("team2", team2);
 
-            // Extract city from venue
-            String city = extractCity(match.getMatchNumberVenue());
+            // Extract city from venue using StadiumCityMapper
+            String venue = match.getMatchNumberVenue();
+            String city = StadiumCityMapper.getCityFromVenue(venue);
+
             if (city.isEmpty()) {
-                logger.warn("Could not extract city from match venue: {}", match.getMatchNumberVenue());
+                logger.warn("Could not map venue to city: {}. Falling back to direct extraction.", venue);
+                // Fallback to original extraction method
+                city = extractCityFallback(venue);
+            }
+
+            if (city.isEmpty()) {
+                logger.warn("Could not extract city from match venue: {}", venue);
                 return null;
             }
+
+            // Log the mapped city for debugging
+            logger.debug("Mapped venue '{}' to city '{}'", venue, city);
             data.put("city", city);
 
-            // Extract current score and wickets
+            // Rest of your existing code remains the same
             ScoreDetails battingDetails = parseScore(match.getBattingTeamScore());
             if (battingDetails != null) {
                 data.put("current_score", battingDetails.runs);
@@ -58,27 +88,29 @@ public class PredictionService {
                 return null;
             }
 
-            // Determine if it's first or second innings
-            boolean isSecondInnings = match.getBowlingTeamScore() != null &&
-                    !match.getBowlingTeamScore().trim().isEmpty();
+            String liveText = match.getLiveText().toLowerCase();
+            String tossWinner = "";
+            String tossDecision = "";
 
-            if (isSecondInnings) {
-                ScoreDetails bowlingDetails = parseScore(match.getBowlingTeamScore());
-                if (bowlingDetails != null) {
-                    data.put("target", bowlingDetails.runs + 1);
-                    data.put("batting_first", 0);
-                } else {
-                    logger.warn("Could not parse bowling score: {}", match.getBowlingTeamScore());
-                    return null;
+            if (liveText.contains("opt to") || liveText.contains("opted to")) {
+                String[] parts = liveText.split("opt");
+                if (parts.length > 0) {
+                    tossWinner = parts[0].trim();
+                    tossDecision = liveText.contains("bowl") ? "field" : "bat";
                 }
-            } else {
-                data.put("batting_first", 1);
             }
 
             data.put("batting_team", match.getBattingTeam());
-            data.put("match_format", match.getMatchFormat().toUpperCase());
-            data.put("toss_winner", match.getBattingTeam());
-            data.put("toss_decision", isSecondInnings ? "field" : "bat");
+            data.put("toss_winner", tossWinner);
+            data.put("toss_decision", tossDecision);
+
+            String format = match.getMatchFormat();
+            if (format == null || format.equals("UNKNOWN")) {
+                if (teamHeading.toLowerCase().contains("women")) {
+                    format = "T20";
+                }
+            }
+            data.put("match_format", format != null ? format.toUpperCase() : "UNKNOWN");
 
             logger.debug("Extracted match data: {}", data);
             return data;
@@ -89,22 +121,48 @@ public class PredictionService {
         }
     }
 
-    private String extractCity(String matchNumberVenue) {
+    // Fallback method for city extraction if mapping fails
+    private String extractCityFallback(String matchNumberVenue) {
+        if (matchNumberVenue == null) return "";
+
         String[] parts = matchNumberVenue.split("•");
         if (parts.length > 1) {
-            return parts[1].trim();
+            String venue = parts[1].trim();
+            venue = venue.replaceAll("(?i)^\\s*at\\s+", "")
+                    .split(",")[0]
+                    .split("\\s*\\(")[0]
+                    .trim();
+
+            if (venue.contains("Stadium")) {
+                venue = venue.split("Stadium")[0].trim();
+            }
+            if (venue.contains("Ground")) {
+                venue = venue.split("Ground")[0].trim();
+            }
+            if (venue.contains("Oval")) {
+                venue = venue.split("Oval")[0].trim();
+            }
+
+            return venue;
         }
         return "";
     }
 
     private ScoreDetails parseScore(String score) {
-        if (score != null && score.contains("/")) {
-            String[] parts = score.split("/");
-            int runs = Integer.parseInt(parts[0].trim());
-            String[] wicketsAndOvers = parts[1].split("\\(");
-            int wickets = Integer.parseInt(wicketsAndOvers[0].trim());
-            double overs = Double.parseDouble(wicketsAndOvers[1].replace(")", "").trim());
-            return new ScoreDetails(runs, wickets, overs);
+        if (score == null || score.trim().isEmpty()) {
+            return null;
+        }
+
+        try {
+            Matcher matcher = SCORE_PATTERN.matcher(score);
+            if (matcher.find()) {
+                int runs = Integer.parseInt(matcher.group(1));
+                int wickets = Integer.parseInt(matcher.group(2));
+                double overs = Double.parseDouble(matcher.group(3));
+                return new ScoreDetails(runs, wickets, overs);
+            }
+        } catch (Exception e) {
+            logger.error("Error parsing score {}: {}", score, e.getMessage());
         }
         return null;
     }
