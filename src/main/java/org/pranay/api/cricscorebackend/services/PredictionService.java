@@ -41,6 +41,10 @@ public class PredictionService {
 
             // Extract city from venue
             String city = extractCity(match.getMatchNumberVenue());
+            if (city.isEmpty()) {
+                logger.warn("Could not extract city from match venue: {}", match.getMatchNumberVenue());
+                return null;
+            }
             data.put("city", city);
 
             // Extract current score and wickets
@@ -50,6 +54,7 @@ public class PredictionService {
                 data.put("current_wickets", battingDetails.wickets);
                 data.put("current_over", battingDetails.overs);
             } else {
+                logger.warn("Could not parse batting score: {}", match.getBattingTeamScore());
                 return null;
             }
 
@@ -63,6 +68,7 @@ public class PredictionService {
                     data.put("target", bowlingDetails.runs + 1);
                     data.put("batting_first", 0);
                 } else {
+                    logger.warn("Could not parse bowling score: {}", match.getBowlingTeamScore());
                     return null;
                 }
             } else {
@@ -74,17 +80,19 @@ public class PredictionService {
             data.put("toss_winner", match.getBattingTeam());
             data.put("toss_decision", isSecondInnings ? "field" : "bat");
 
+            logger.debug("Extracted match data: {}", data);
             return data;
 
         } catch (Exception e) {
-            logger.error("Error extracting match data: {}", e.getMessage());
+            logger.error("Error extracting match data: {}", e.getMessage(), e);
             return null;
         }
     }
 
     private String extractCity(String matchNumberVenue) {
-        if (matchNumberVenue != null && matchNumberVenue.contains(",")) {
-            return matchNumberVenue.split(",")[1].trim();
+        String[] parts = matchNumberVenue.split("•");
+        if (parts.length > 1) {
+            return parts[1].trim();
         }
         return "";
     }

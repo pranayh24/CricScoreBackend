@@ -21,16 +21,13 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api/prediction")
 public class FlaskController {
-
     private static final Logger logger = LoggerFactory.getLogger(FlaskController.class);
     private final PredictionService predictionService;
     private final MatchService matchService;
     private final ObjectMapper objectMapper;
 
     @Autowired
-    public FlaskController(PredictionService predictionService,
-                           MatchService matchService,
-                           ObjectMapper objectMapper) {
+    public FlaskController(PredictionService predictionService, MatchService matchService, ObjectMapper objectMapper) {
         this.predictionService = predictionService;
         this.matchService = matchService;
         this.objectMapper = objectMapper;
@@ -39,25 +36,16 @@ public class FlaskController {
     @GetMapping
     public ResponseEntity<List<MatchPredictionDTO>> getAllMatchesWithPredictions() {
         try {
-            // Get all matches
             List<Match> matches = matchService.getAllMatches();
-
-            // Convert matches to DTOs and get predictions for eligible matches
             List<MatchPredictionDTO> matchPredictions = matches.stream()
                     .map(match -> {
                         MatchPredictionDTO dto = new MatchPredictionDTO(match);
-
-                        // Only get predictions for live ODI or T20 matches
-                        if (match.getStatus() == matchStatus.LIVE &&
-                                isValidFormat(match.getMatchFormat())) {
+                        if (match.getStatus() == matchStatus.LIVE) {
                             try {
-                                // Get prediction
                                 ResponseEntity<String> predictionResponse =
                                         predictionService.getPredictionWithData(
                                                 predictionService.extractMatchData(match));
-
                                 if (predictionResponse.getStatusCode() == HttpStatus.OK) {
-                                    // Parse prediction response
                                     addPredictionToDTO(dto, predictionResponse.getBody());
                                 } else {
                                     dto.setPredictionMessage("Prediction currently unavailable");
@@ -73,7 +61,6 @@ public class FlaskController {
                                             "Match completed" :
                                             "Prediction not available for this match format");
                         }
-
                         return dto;
                     })
                     .collect(Collectors.toList());
@@ -82,9 +69,7 @@ public class FlaskController {
 
         } catch (Exception e) {
             logger.error("Error processing matches and predictions: {}", e.getMessage());
-            return ResponseEntity
-                    .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(List.of());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(List.of());
         }
     }
 
@@ -98,13 +83,10 @@ public class FlaskController {
 
             MatchPredictionDTO dto = new MatchPredictionDTO(match);
 
-            if (match.getStatus() == matchStatus.LIVE &&
-                    isValidFormat(match.getMatchFormat())) {
-
+            if (match.getStatus() == matchStatus.LIVE) {
                 ResponseEntity<String> predictionResponse =
                         predictionService.getPredictionWithData(
                                 predictionService.extractMatchData(match));
-
                 if (predictionResponse.getStatusCode() == HttpStatus.OK) {
                     addPredictionToDTO(dto, predictionResponse.getBody());
                 }
@@ -114,27 +96,17 @@ public class FlaskController {
 
         } catch (Exception e) {
             logger.error("Error getting prediction for match {}: {}", matchId, e.getMessage());
-            return ResponseEntity
-                    .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .build();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
-    }
-
-    private boolean isValidFormat(String format) {
-        if (format == null) return false;
-        String upperFormat = format.toUpperCase();
-        return upperFormat.equals("ODI") || upperFormat.equals("T20");
     }
 
     private void addPredictionToDTO(MatchPredictionDTO dto, String predictionJson) {
         try {
             var prediction = objectMapper.readTree(predictionJson);
-
             dto.setIsPredictionAvailable(true);
             dto.setLikelyWinner(prediction.get("likely_winner").asText());
             dto.setWinProbability(prediction.get("win_probability").asDouble());
             dto.setPredictedScore(prediction.get("predicted_final_score").asInt());
-
         } catch (Exception e) {
             logger.error("Error parsing prediction JSON: {}", e.getMessage());
             dto.setPredictionMessage("Error processing prediction data");
@@ -146,9 +118,7 @@ public class FlaskController {
         if (predictionService.isFlaskServiceAvailable()) {
             return ResponseEntity.ok("Prediction service is available");
         } else {
-            return ResponseEntity
-                    .status(HttpStatus.SERVICE_UNAVAILABLE)
-                    .body("Prediction service is not available");
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body("Prediction service is not available");
         }
     }
 }

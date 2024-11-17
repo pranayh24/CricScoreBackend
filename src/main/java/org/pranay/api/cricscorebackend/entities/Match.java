@@ -29,9 +29,19 @@ public class Match {
     private matchStatus status;
     private String matchType;
     private Date date = new Date();
-    private String matchFormat;
 
     // set the match status according to text complete
+    @Column(name = "match_format")
+    private String matchFormat;
+    // Getter and Setter for matchFormat
+    public String getMatchFormat() {
+        return matchFormat;
+    }
+
+    public void setMatchFormat(String matchFormat) {
+        this.matchFormat = matchFormat;
+    }
+
     public void setMatchStatus(){
         if(textComplete.isBlank()){
             this.status= matchStatus.LIVE;
