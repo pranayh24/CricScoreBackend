@@ -148,4 +148,8 @@ public class MatchServiceImpl implements MatchService {
     public Match getMatchById(int matchId) {
         return matchRepo.findById(matchId).orElse(null);
     }
+    @Override
+    public void saveMatch(Match match) {
+        matchRepo.save(match);
+    }
 }

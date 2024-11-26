@@ -11,4 +11,5 @@ public interface MatchService {
     List<Match> getLiveMatchScores();
 
     Match getMatchById(int matchId);
+    void saveMatch(Match match);
 }

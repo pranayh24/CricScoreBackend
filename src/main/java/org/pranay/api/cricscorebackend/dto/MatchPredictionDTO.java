@@ -33,7 +33,6 @@ public class MatchPredictionDTO {
     private String predictionMessage;
     private Boolean isPredictionAvailable;
 
-    // Constructor from Match entity
     public MatchPredictionDTO(Match match) {
         this.matchId = match.getMatchId();
         this.teamHeading = match.getTeamHeading();

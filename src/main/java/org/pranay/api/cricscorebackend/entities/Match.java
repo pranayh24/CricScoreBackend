@@ -30,6 +30,25 @@ public class Match {
     private String matchType;
     private Date date = new Date();
 
+    private String tossWinner;
+    private String tossDecision;
+
+    // Getters and setters
+    public String getTossWinner() {
+        return tossWinner;
+    }
+
+    public void setTossWinner(String tossWinner) {
+        this.tossWinner = tossWinner;
+    }
+
+    public String getTossDecision() {
+        return tossDecision;
+    }
+
+    public void setTossDecision(String tossDecision) {
+        this.tossDecision = tossDecision;
+    }
     // set the match status according to text complete
     @Column(name = "match_format")
     private String matchFormat;

@@ -15,6 +15,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
@@ -119,6 +120,26 @@ public class FlaskController {
             return ResponseEntity.ok("Prediction service is available");
         } else {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body("Prediction service is not available");
+        }
+    }
+
+    @PostMapping("/updateTossInfo/{matchId}")
+    public ResponseEntity<String> updateTossInfo(@PathVariable int matchId, @RequestBody Map<String, String> tossInfo) {
+        try {
+            Match match = matchService.getMatchById(matchId);
+            if (match == null) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Match not found");
+            }
+
+            // Update match data with manual toss info
+            match.setTossWinner(tossInfo.get("toss_winner"));
+            match.setTossDecision(tossInfo.get("toss_decision"));
+            matchService.saveMatch(match);
+
+            return ResponseEntity.ok("Toss information updated successfully");
+        } catch (Exception e) {
+            logger.error("Error updating toss information: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Error updating toss information");
         }
     }
 }

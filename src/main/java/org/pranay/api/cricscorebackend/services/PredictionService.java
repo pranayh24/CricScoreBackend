@@ -21,96 +21,76 @@ public class PredictionService {
     private static final Logger logger = LoggerFactory.getLogger(PredictionService.class);
     private final RestTemplate restTemplate;
     private final String flaskBaseUrl;
-
     private static final Pattern SCORE_PATTERN = Pattern.compile("(\\d+)-(\\d+)\\s*\\((\\d+(?:\\.\\d+)?)\\s*Ovs\\)");
 
     @Autowired
     public PredictionService(RestTemplate restTemplate) {
         this.restTemplate = restTemplate;
         this.flaskBaseUrl = "http://localhost:5000";
-
-        // Initialize with some common stadium mappings that might be missing
-        initializeAdditionalStadiumMappings();
+        //initializeAdditionalStadiumMappings();
     }
 
-    private void initializeAdditionalStadiumMappings() {
-        // Add any additional mappings that might be specific to your data
+    /*private void initializeAdditionalStadiumMappings() {
         StadiumCityMapper.addStadiumMapping("Pallekele International Cricket Stadium", "Kandy");
         StadiumCityMapper.addStadiumMapping("R.Premadasa Stadium", "Colombo");
         StadiumCityMapper.addStadiumMapping("Premadasa Stadium", "Colombo");
-        // Add more mappings as needed
+        StadiumCityMapper.addStadiumMapping("Melbourne Cricket Ground", "Melbourne");
+        StadiumCityMapper.addStadiumMapping("Sydney Cricket Ground", "Sydney");
+        StadiumCityMapper.addStadiumMapping("Adelaide Oval", "Adelaide");
+        StadiumCityMapper.addStadiumMapping("WACA Ground", "Perth");
+        StadiumCityMapper.addStadiumMapping("Bellerive Oval", "Hobart");
     }
-
+*/
     public Map<String, Object> extractMatchData(Match match) {
         try {
             Map<String, Object> data = new HashMap<>();
 
-            // Extract teams from team heading (remove trailing comma if present)
-            String teamHeading = match.getTeamHeading().replaceAll(",$", "");
-            String[] teams = teamHeading.split("vs|VS");
-            if (teams.length != 2) {
-                logger.warn("Invalid team heading format: {}", match.getTeamHeading());
-                return null;
-            }
+            // Extract and validate teams
+            String[] teams = extractAndValidateTeams(match.getTeamHeading());
+            if (teams == null) return null;
 
-            String team1 = teams[0].trim();
-            String team2 = teams[1].trim();
+            String team1 = TeamNameStandardizer.standardizeTeamName(teams[0]);
+            String team2 = TeamNameStandardizer.standardizeTeamName(teams[1]);
             data.put("team1", team1);
             data.put("team2", team2);
 
-            // Extract city from venue using StadiumCityMapper
-            String venue = match.getMatchNumberVenue();
-            String city = StadiumCityMapper.getCityFromVenue(venue);
-
-            if (city.isEmpty()) {
-                logger.warn("Could not map venue to city: {}. Falling back to direct extraction.", venue);
-                // Fallback to original extraction method
-                city = extractCityFallback(venue);
-            }
-
-            if (city.isEmpty()) {
-                logger.warn("Could not extract city from match venue: {}", venue);
-                return null;
-            }
-
-            // Log the mapped city for debugging
-            logger.debug("Mapped venue '{}' to city '{}'", venue, city);
+            // Extract and validate city
+            String city = extractAndValidateCity(match.getMatchNumberVenue());
+            if (city == null) return null;
             data.put("city", city);
 
-            // Rest of your existing code remains the same
+            // Parse score details
             ScoreDetails battingDetails = parseScore(match.getBattingTeamScore());
-            if (battingDetails != null) {
-                data.put("current_score", battingDetails.runs);
-                data.put("current_wickets", battingDetails.wickets);
-                data.put("current_over", battingDetails.overs);
-            } else {
+            if (battingDetails == null) {
                 logger.warn("Could not parse batting score: {}", match.getBattingTeamScore());
                 return null;
             }
 
-            String liveText = match.getLiveText().toLowerCase();
-            String tossWinner = "";
-            String tossDecision = "";
+            data.put("current_score", battingDetails.runs);
+            data.put("current_wickets", battingDetails.wickets);
+            data.put("current_over", battingDetails.overs);
 
-            if (liveText.contains("opt to") || liveText.contains("opted to")) {
-                String[] parts = liveText.split("opt");
-                if (parts.length > 0) {
-                    tossWinner = parts[0].trim();
-                    tossDecision = liveText.contains("bowl") ? "field" : "bat";
-                }
+            // Extract and validate toss details
+            Map<String, String> tossDetails = extractTossDetails(match);
+            if (tossDetails == null) return null;
+
+            String standardizedBattingTeam = TeamNameStandardizer.standardizeTeamName(match.getBattingTeam());
+
+            // Validate batting team
+            if (!standardizedBattingTeam.equals(team1) && !standardizedBattingTeam.equals(team2)) {
+                logger.error("Batting team '{}' does not match either team1 '{}' or team2 '{}'",
+                        standardizedBattingTeam, team1, team2);
+                return null;
             }
 
-            data.put("batting_team", match.getBattingTeam());
-            data.put("toss_winner", tossWinner);
-            data.put("toss_decision", tossDecision);
+            data.put("batting_team", standardizedBattingTeam);
+            data.put("toss_winner", TeamNameStandardizer.standardizeTeamName(tossDetails.get("winner")));
+            data.put("toss_decision", tossDetails.get("decision"));
 
-            String format = match.getMatchFormat();
-            if (format == null || format.equals("UNKNOWN")) {
-                if (teamHeading.toLowerCase().contains("women")) {
-                    format = "T20";
-                }
-            }
-            data.put("match_format", format != null ? format.toUpperCase() : "UNKNOWN");
+            // Extract and validate match format
+            String format = extractAndValidateFormat(match);
+            if (format == null) return null;
+            data.put("match_format", format);
 
             logger.debug("Extracted match data: {}", data);
             return data;
@@ -121,31 +101,109 @@ public class PredictionService {
         }
     }
 
-    // Fallback method for city extraction if mapping fails
+    private String[] extractAndValidateTeams(String teamHeading) {
+        if (teamHeading == null) {
+            logger.warn("Team heading is null");
+            return null;
+        }
+
+        String cleanedHeading = teamHeading.replaceAll(",$", "");
+        String[] teams = cleanedHeading.split("vs|VS");
+
+        if (teams.length != 2) {
+            logger.warn("Invalid team heading format: {}", teamHeading);
+            return null;
+        }
+
+        return new String[]{teams[0].trim(), teams[1].trim()};
+    }
+
+    private String extractAndValidateCity(String venue) {
+        if (venue == null) {
+            logger.warn("Venue is null");
+            return null;
+        }
+
+        String city = StadiumCityMapper.getCityFromVenue(venue);
+        if (city.isEmpty()) {
+            logger.debug("Could not map venue to city: {}. Falling back to direct extraction.", venue);
+            city = extractCityFallback(venue);
+        }
+
+        if (city.isEmpty()) {
+            logger.warn("Could not extract city from match venue: {}", venue);
+            return null;
+        }
+
+        return city;
+    }
+
     private String extractCityFallback(String matchNumberVenue) {
         if (matchNumberVenue == null) return "";
 
         String[] parts = matchNumberVenue.split("•");
         if (parts.length > 1) {
-            String venue = parts[1].trim();
-            venue = venue.replaceAll("(?i)^\\s*at\\s+", "")
+            String venue = parts[1].trim()
+                    .replaceAll("(?i)^\\s*at\\s+", "")
                     .split(",")[0]
                     .split("\\s*\\(")[0]
                     .trim();
 
-            if (venue.contains("Stadium")) {
-                venue = venue.split("Stadium")[0].trim();
-            }
-            if (venue.contains("Ground")) {
-                venue = venue.split("Ground")[0].trim();
-            }
-            if (venue.contains("Oval")) {
-                venue = venue.split("Oval")[0].trim();
-            }
+            venue = venue.replaceAll("(?i)\\s*Stadium.*$", "")
+                    .replaceAll("(?i)\\s*Ground.*$", "")
+                    .replaceAll("(?i)\\s*Oval.*$", "")
+                    .trim();
 
             return venue;
         }
         return "";
+    }
+
+    private Map<String, String> extractTossDetails(Match match) {
+        String liveText = match.getLiveText().toLowerCase();
+        String tossWinner = "";
+        String tossDecision = "";
+
+        if (liveText.contains("opt to") || liveText.contains("opted to")) {
+            String[] parts = liveText.split("opt");
+            if (parts.length > 0) {
+                tossWinner = parts[0].trim();
+                tossDecision = liveText.contains("bowl") ? "field" : "bat";
+            }
+        }
+
+        if (tossWinner.isEmpty() || tossDecision.isEmpty()) {
+            tossWinner = getManualTossWinner(match);
+            tossDecision = getManualTossDecision(match);
+        }
+
+        if (tossWinner.isEmpty() || tossDecision.isEmpty()) {
+            logger.warn("Could not determine toss details");
+            return null;
+        }
+
+        Map<String, String> details = new HashMap<>();
+        details.put("winner", tossWinner);
+        details.put("decision", tossDecision);
+        return details;
+    }
+
+    private String extractAndValidateFormat(Match match) {
+        String format = match.getMatchFormat();
+        if (format == null || format.equals("UNKNOWN")) {
+            if (match.getTeamHeading().toLowerCase().contains("women")) {
+                format = "T20";
+            } else {
+                logger.warn("Could not determine match format");
+                return null;
+            }
+        }
+        format = format.toUpperCase();
+        if (!isValidFormat(format)) {
+            logger.warn("Invalid match format: {}", format);
+            return null;
+        }
+        return format;
     }
 
     private ScoreDetails parseScore(String score) {
@@ -156,10 +214,11 @@ public class PredictionService {
         try {
             Matcher matcher = SCORE_PATTERN.matcher(score);
             if (matcher.find()) {
-                int runs = Integer.parseInt(matcher.group(1));
-                int wickets = Integer.parseInt(matcher.group(2));
-                double overs = Double.parseDouble(matcher.group(3));
-                return new ScoreDetails(runs, wickets, overs);
+                return new ScoreDetails(
+                        Integer.parseInt(matcher.group(1)),
+                        Integer.parseInt(matcher.group(2)),
+                        Double.parseDouble(matcher.group(3))
+                );
             }
         } catch (Exception e) {
             logger.error("Error parsing score {}: {}", score, e.getMessage());
@@ -169,15 +228,12 @@ public class PredictionService {
 
     public ResponseEntity<String> getPredictionWithData(Map<String, Object> matchData) {
         try {
-            // Validate the match format
-            String format = (String) matchData.getOrDefault("match_format", "");
-            if (!isValidFormat(format)) {
+            if (matchData == null || matchData.isEmpty()) {
                 return ResponseEntity
                         .badRequest()
-                        .body("Invalid match format: " + format);
+                        .body("Match data is empty or null");
             }
 
-            // Check if Flask service is available
             if (!isFlaskServiceAvailable()) {
                 logger.error("Flask prediction service is not available");
                 return ResponseEntity
@@ -187,10 +243,9 @@ public class PredictionService {
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
-
             HttpEntity<Map<String, Object>> requestEntity = new HttpEntity<>(matchData, headers);
 
-            logger.info("Sending prediction request for {} match", format);
+            logger.info("Sending prediction request for {} match", matchData.get("match_format"));
             logger.debug("Request data: {}", matchData);
 
             ResponseEntity<String> response = restTemplate.exchange(
@@ -200,7 +255,7 @@ public class PredictionService {
                     String.class
             );
 
-            logger.info("Received prediction response for {} match", format);
+            logger.info("Received prediction response");
             logger.debug("Response: {}", response.getBody());
 
             return response;
@@ -235,5 +290,13 @@ public class PredictionService {
             logger.error("Error checking Flask service availability: {}", e.getMessage());
             return false;
         }
+    }
+
+    private String getManualTossWinner(Match match) {
+        return match.getBattingTeam();
+    }
+
+    private String getManualTossDecision(Match match) {
+        return "bat";
     }
 }

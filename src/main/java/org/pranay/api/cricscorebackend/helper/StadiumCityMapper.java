@@ -16,7 +16,7 @@ public class StadiumCityMapper {
         put("Rajiv Gandhi International Stadium", "Hyderabad");
         put("Bharat Ratna Shri Atal Bihari Vajpayee Ekana Cricket Stadium", "Lucknow");
         put("Holkar Stadium", "Indore");
-
+        put("Bellerive Oval", "Hobart");
         // Major International Stadiums
         put("Melbourne Cricket Ground", "Melbourne");
         put("Sydney Cricket Ground", "Sydney");
@@ -48,6 +48,7 @@ public class StadiumCityMapper {
         put("Harare Sports Club", "Harare");
         put("Dubai International Cricket Stadium", "Dubai");
         put("Sheikh Zayed Stadium", "Abu Dhabi");
+        put("Darren Sammy National Cricket Stadium", "Gros Islet");
     }};
 
     // Method to get city from full venue string
